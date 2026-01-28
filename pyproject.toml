@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wmh_isl_seg"
+version = "0.0.1"
+
+[project.scripts]
+wmh_isl_predict = "wmh_isl_seg.run:main"
