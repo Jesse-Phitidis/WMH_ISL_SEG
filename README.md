@@ -1,6 +1,6 @@
 Publicly available model for segmentation of White Matter Hyperintensities (WMH) and Ischaemic Stroke Lesions (ISL) from FLAIR MRI. Please cite:
 
-*PAPER LINK COMING...*
+Phitidis, J., Smithard, A. Q., Whiteley, W. N., Wardlaw, J. M., Bernabeu, M. O., & Valdés Hernández, M. (2026). Comparative evaluation of training strategies using partially labelled datasets for segmentation of white matter hyperintensities and stroke lesions in FLAIR MRI. arXiv. https://arxiv.org/abs/2601.20503
 
 # Installation and User Guide
 
