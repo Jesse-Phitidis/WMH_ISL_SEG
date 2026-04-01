@@ -49,73 +49,57 @@ def bias_field_correction(nii: nib.Nifti1Image) -> nib.Nifti1Image:
     return nii
 
 
-def brain_extraction(nii: nib.Nifti1Image) -> nib.Nifti1Image:
+def brain_extraction(nii: nib.Nifti1Image) -> tuple[nib.Nifti1Image, nib.Nifti1Image]:
     """ This function assumes freesurfer is set up correctly"""
     tempdir = TemporaryDirectory()
     nii_in_path = Path(tempdir.name) / "in.nii.gz"
     nii_out_path = Path(tempdir.name) / "out.nii.gz"
+    nii_mask_path = Path(tempdir.name) / "mask.nii.gz"
     nib.save(nii, nii_in_path)
-    subprocess.run(["mri_synthstrip", "-i", str(nii_in_path), "-o", str(nii_out_path)], stdout=subprocess.DEVNULL)
-    nii = nib_load(nii_out_path, lazy=False)
-    return nii
-    
-    
-def get_min_max_nonzero_indices(nii: nib.Nifti1Image) -> tuple[np.ndarray, np.ndarray]:
+    subprocess.run(
+        ["mri_synthstrip", "-i", str(nii_in_path), "-o", str(nii_out_path), "-m", str(nii_mask_path)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    stripped_nii = nib_load(nii_out_path, lazy=False)
+    mask_nii = nib_load(nii_mask_path, lazy=False)
+    return stripped_nii, mask_nii
+
+
+def z_score_within_mask(nii: nib.Nifti1Image, mask_nii: nib.Nifti1Image) -> nib.Nifti1Image:
     data = nii.get_fdata()
-    data_nonzero = np.where(data > 0)
-    min_indices = np.min(data_nonzero, axis=1)
-    max_indices = np.max(data_nonzero, axis=1)
-    return min_indices, max_indices
-
-
-def get_crop_transform(min_indices: np.ndarray, max_indices: np.ndarray, shape: tuple) -> tio.Crop:
-    crop_sides = []
-    for i, (low, high) in enumerate(zip(min_indices, max_indices)):
-        for e in (low, shape[i]-1-high):
-            crop_sides.append(e)
-    return tio.Crop(crop_sides)
-    
-
-def crop_to_brain(nii: nib.Nifti1Image) -> nib.Nifti1Image:
-    min_indices, max_indices = get_min_max_nonzero_indices(nii)
-    crop = get_crop_transform(min_indices, max_indices, nii.shape)
-    nii = crop(nii)
-    return nii
-    
-    
-class EnsureShapeAtLeastTransform(tio.Transform):
-    
-    def __init__(self, min_shape: tuple):
-        super().__init__(parse_input=False)
-        self.min_shape = min_shape
-        
-    def apply_transform(self, nii: nib.Nifti1Image) -> nib.Nifti1Image:
-        target_shape = np.max(np.stack([nii.shape, self.min_shape], axis=0), axis=0)
-        T = tio.CropOrPad(target_shape=target_shape)
-        return T(nii)
+    mask = mask_nii.get_fdata() > 0.5
+    if np.count_nonzero(mask) == 0:
+        return nii
+    masked_values = data[mask]
+    mean = float(np.mean(masked_values))
+    std = float(np.std(masked_values))
+    if std < 1e-8:
+        std = 1.0
+    data = (data - mean) / std
+    return nib.Nifti1Image(data, nii.affine, nii.header)
 
 
 class Preprocessor:
     
-    def __init__(self, do_bias_field_correction: bool = True, do_brain_extraction: bool = True):
+    def __init__(self, do_bias_field_correction: bool = True):
         self.rescale = tio.RescaleIntensity()
         self.resample = tio.Resample(target=1)
         self.to_canonical = tio.ToCanonical()
         self.bias_field_correction = bias_field_correction if do_bias_field_correction else lambda x:x 
-        self.brain_extraction = brain_extraction if do_brain_extraction else lambda x:x
-        self.crop_to_brain = crop_to_brain
-        self.ensure_shape = EnsureShapeAtLeastTransform(min_shape=(160,160,160))
-        self.z_score = tio.ZNormalization()
         
-    def __call__(self, nii: nib.Nifti1Image) -> nib.Nifti1Image:
+    def __call__(self, nii: nib.Nifti1Image, brain_mask: nib.Nifti1Image | None = None) -> nib.Nifti1Image:
         nii = self.rescale(nii)
         nii = self.resample(nii)
         nii = self.to_canonical(nii)
         nii = self.bias_field_correction(nii)
-        nii = self.brain_extraction(nii)
-        nii = self.crop_to_brain(nii)
-        nii = self.ensure_shape(nii)
-        nii = self.z_score(nii)
+
+        if brain_mask is None:
+            nii, brain_mask = brain_extraction(nii)
+        else:
+            brain_mask = tio.Resample(target=nii, image_interpolation="nearest")(brain_mask)
+
+        nii = z_score_within_mask(nii, brain_mask)
         return nii
     
     

@@ -13,8 +13,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--inputs", type=str, required=True, help="Path or csv of paths to FLAIR nifti files")
     parser.add_argument("-o", "--outputs", type=str, required=True, help="Path or csv of paths to save the output files")
+    parser.add_argument("-m", "--brain_masks", type=str, default=None, help="Optional path or csv of paths to binary brain mask nifti files")
     parser.add_argument("--skip_bias_field_correction", action="store_true", default=False, help="Skip applying bias field correction")
-    parser.add_argument("--skip_brain_extraction", action="store_true", default=False, help="Skip applying brain extraction (requires mri_synthstrip to be set up)")
     parser.add_argument("--cpu", action="store_true", default=False, help="Run on the CPU")
     args = parser.parse_args()
     return args
@@ -30,10 +30,23 @@ def main():
         inputs = [Path(x) for x in pd.read_csv(args.inputs, header=None).values.flatten().tolist()]
         outputs = [Path(x) for x in pd.read_csv(args.outputs, header=None).values.flatten().tolist()]
         assert len(inputs) == len(outputs), "Inputs and outputs csv files must have the same number of entries"
+
+        if args.brain_masks is not None:
+            assert args.brain_masks.endswith(".csv"), "brain_masks must be a csv when inputs/outputs are csv"
+            brain_masks = [Path(x) for x in pd.read_csv(args.brain_masks, header=None).values.flatten().tolist()]
+            assert len(brain_masks) == len(inputs), "inputs and brain_masks csv files must have the same number of entries"
+        else:
+            brain_masks = [None] * len(inputs)
     elif args.inputs.endswith(".nii.gz") or args.outputs.endswith(".nii.gz"):
         assert args.inputs.endswith(".nii.gz") and args.outputs.endswith(".nii.gz"), "Both inputs and outputs must be nifti files if one is a nifti"
         inputs = [Path(args.inputs)]
         outputs = [Path(args.outputs)]
+
+        if args.brain_masks is not None:
+            assert args.brain_masks.endswith(".nii.gz"), "brain_masks must be a nifti when inputs/outputs are nifti"
+            brain_masks = [Path(args.brain_masks)]
+        else:
+            brain_masks = [None]
     else:
         raise ValueError("inputs and outputs must have extension '.csv' or '.nii.gz'")
     
@@ -46,8 +59,7 @@ def main():
     
     # Set up preprocessor
     preprocessor = Preprocessor(
-        do_bias_field_correction = (not args.skip_bias_field_correction), 
-        do_brain_extraction = (not args.skip_brain_extraction)
+        do_bias_field_correction = (not args.skip_bias_field_correction)
         )
     
     # Set up ensemble inferer
@@ -58,9 +70,10 @@ def main():
     inferer.setup()
     
     # Predict
-    for in_path, out_path in tqdm(zip(inputs, outputs), total=len(inputs)):
+    for in_path, out_path, mask_path in tqdm(zip(inputs, outputs, brain_masks), total=len(inputs)):
         nii_original = nib.load(in_path)
-        nii_preprocessed = preprocessor(nii_original)
+        nii_mask = nib.load(mask_path) if mask_path is not None else None
+        nii_preprocessed = preprocessor(nii_original, brain_mask=nii_mask)
         nii_prediction = inferer(nii_preprocessed, binary=True)
         nii_prediction = tio.Resample(target=(nii_original.shape, nii_original.affine), image_interpolation="nearest")(nii_prediction)
         save_nii(

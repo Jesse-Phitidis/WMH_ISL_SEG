@@ -1,6 +1,6 @@
 Publicly available model for segmentation of White Matter Hyperintensities (WMH) and Ischaemic Stroke Lesions (ISL) from FLAIR MRI. Please cite:
 
-*PAPER LINK COMING...*
+Phitidis, J., Smithard, A. Q., Whiteley, W. N., Wardlaw, J. M., Bernabeu, M. O., & Valdés Hernández, M. (2026). Comparative evaluation of training strategies using partially labelled datasets for segmentation of white matter hyperintensities and stroke lesions in FLAIR MRI. arXiv. https://arxiv.org/abs/2601.20503
 
 # Installation and User Guide
 
@@ -41,4 +41,4 @@ Run the following command to see available options:
 wmh_isl_predict --help
 ```
 
-If the option `--skip_brain_extraction` is not set, then the command `mri_synthstrip` must be set up correctly in your environment.
+If brain masks are not provided, then the command `mri_synthstrip` must be set up correctly in your environment.
