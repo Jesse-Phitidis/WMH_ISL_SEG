@@ -97,7 +97,9 @@ class Preprocessor:
         if brain_mask is None:
             nii, brain_mask = brain_extraction(nii)
         else:
-            brain_mask = tio.Resample(target=nii, image_interpolation="nearest")(brain_mask)
+            brain_mask = tio.Resample(target=(nii.shape, nii.affine), image_interpolation="nearest")(brain_mask)
+            masked_data = nii.get_fdata() * (brain_mask.get_fdata() > 0.5)
+            nii = nib.Nifti1Image(masked_data, nii.affine, nii.header)
 
         nii = z_score_within_mask(nii, brain_mask)
         return nii
